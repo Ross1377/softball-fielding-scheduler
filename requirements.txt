@@ -1,0 +1,5 @@
+streamlit
+pandas
+ortools==9.9.3963
+protobuf>=4.25.3,<6
+absl-py>=2,<3
