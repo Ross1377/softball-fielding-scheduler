@@ -1,5 +1,6 @@
 streamlit==1.37.1
-pandas==2.2.2
+pandas==2.1.4
+numpy==1.26.4
 ortools==9.10.4067
-protobuf>=4.25.3,<6
-absl-py>=2,<3
+protobuf==4.25.3
+absl-py==2.1.0
