@@ -1,11 +1,12 @@
-# softball_scheduler_app.py  (PuLP edition)
+# softball_scheduler_app.py  (PuLP edition + Mobile mode)
 # Streamlit GUI + MILP with PuLP (CBC solver)
 # - 3 vs 4 outfielders toggle
-# - Up to 17 players w/ 5 priority positions each
+# - Up to 17 players with 5 priority positions each
 # - Bench max per player
-# - Max 2 consecutive benches (hard)
-# - Soft penalty for bench streaks (dropdown weight)
+# - Hard cap of 2 benches in a row
+# - Soft penalty for back-to-back benches (dropdown weight)
 # - Minimize position changes across consecutive innings
+# - Mobile mode: stacked "one player per card" inputs for phones
 # Run: streamlit run softball_scheduler_app.py
 
 from __future__ import annotations
@@ -16,14 +17,22 @@ import pulp
 
 st.set_page_config(page_title="Softball Fielding Scheduler", layout="wide")
 
-# ---------------- Helpers ----------------
+# ---------- tiny CSS tweaks (smaller controls on mobile) ----------
+st.markdown("""
+<style>
+.block-container { padding-top: 0.5rem; padding-bottom: 2rem; }
+[data-baseweb="select"] > div { min-height: 34px; }
+.stButton>button { height: 40px; }
+</style>
+""", unsafe_allow_html=True)
+
+# ---------- helpers ----------
 def positions_for(outfielders: int) -> List[str]:
     infield = ["P", "C", "1B", "2B", "3B", "SS"]
     of3 = ["LF", "CF", "RF"]
-    of4 = ["LF", "LCF", "RCF", "RF"]  # common 4-OF layout
+    of4 = ["LF", "LCF", "RCF", "RF"]
     return infield + (of3 if outfielders == 3 else of4)
 
-# priority cost (lower better)
 PRIO_COST = {1: 0, 2: 1, 3: 3, 4: 6, 5: 10}
 
 def build_model(
@@ -32,68 +41,55 @@ def build_model(
     innings: int,
     bench_streak_weight: int,
 ) -> Tuple[pulp.LpProblem, Dict, Dict, Dict]:
-    """
-    players_data item:
-      {
-        'name': str,
-        'allowed': set[str],         # eligible positions
-        'bench_max': int,            # max bench innings
-        'prio_costs': dict[str,int]  # pos -> cost
-      }
-    """
     prob = pulp.LpProblem("softball_schedule", pulp.LpMinimize)
     P = range(len(players_data))
     I = range(innings)
 
-    # Decision vars
     x, y, b = {}, {}, {}
     for p in P:
         for i in I:
             y[p, i] = pulp.LpVariable(f"y_{p}_{i}", 0, 1, cat="Binary")
             b[p, i] = pulp.LpVariable(f"b_{p}_{i}", 0, 1, cat="Binary")
-            # play vs bench
             prob += y[p, i] + b[p, i] == 1
             for pos in pos_list:
                 if pos in players_data[p]["allowed"]:
                     x[p, i, pos] = pulp.LpVariable(f"x_{p}_{i}_{pos}", 0, 1, cat="Binary")
 
-    # Each position filled exactly once per inning
+    # each position exactly once per inning
     for i in I:
         for pos in pos_list:
             elig = [x[p, i, pos] for p in P if (p, i, pos) in x]
-            # If nobody can play a required position, the model will be infeasible
             prob += pulp.lpSum(elig) == 1
 
-    # A player plays at most one position per inning; link to y
+    # a player at most one position per inning (link to y)
     for p in P:
         for i in I:
             elig = [x[p, i, pos] for pos in pos_list if (p, i, pos) in x]
             prob += pulp.lpSum(elig) == y[p, i]
 
-    # Exactly |pos_list| players on field each inning
+    # fixed number on field
     need_on_field = len(pos_list)
     for i in I:
         prob += pulp.lpSum(y[p, i] for p in P) == need_on_field
 
-    # Bench limits
+    # bench limits
     for p in P:
-        bench_max = players_data[p]["bench_max"]
-        prob += pulp.lpSum(b[p, i] for i in I) <= bench_max
+        prob += pulp.lpSum(b[p, i] for i in I) <= players_data[p]["bench_max"]
 
-    # Hard cap: max 2 benches in a row
+    # hard cap: max 2 benches in a row
     for p in P:
         for i in range(innings - 2):
             prob += b[p, i] + b[p, i + 1] + b[p, i + 2] <= 2
 
-    # -------- Objective --------
-    PRIO_WEIGHT   = 100
-    BENCH_WEIGHT  = 10
+    # ---- objective ----
+    PRIO_WEIGHT = 100
+    BENCH_WEIGHT = 10
     CHANGE_WEIGHT = 1
     BENCH_STREAK_WEIGHT = int(bench_streak_weight)
 
     cost_terms = []
 
-    # (A) Priority costs
+    # (A) priority costs
     for p in P:
         pcost = players_data[p]["prio_costs"]
         for i in I:
@@ -103,13 +99,13 @@ def build_model(
                     if c < 1000:
                         cost_terms.append(PRIO_WEIGHT * c * x[p, i, pos])
 
-    # (B) Benching distribution: penalize benching players who can sit less
+    # (B) distribute benches fairly wrt bench_max
     max_bench = max((d["bench_max"] for d in players_data), default=0)
     for p in P:
         weight = (max_bench - players_data[p]["bench_max"] + 1)
         cost_terms.append(BENCH_WEIGHT * weight * pulp.lpSum(b[p, i] for i in I))
 
-    # (C) Position-change tie-break across consecutive played innings
+    # (C) minimize position changes between consecutive played innings
     for p in P:
         for i in range(1, innings):
             played_both = pulp.LpVariable(f"pb_{p}_{i}", 0, 1, cat="Binary")
@@ -132,7 +128,7 @@ def build_model(
             prob += change <= played_both
             cost_terms.append(CHANGE_WEIGHT * change)
 
-    # (D) Soft penalty: discourage 2 consecutive benches
+    # (D) soft penalty: discourage two consecutive benches
     if BENCH_STREAK_WEIGHT > 0:
         for p in P:
             for i in range(1, innings):
@@ -145,20 +141,17 @@ def build_model(
     prob += pulp.lpSum(cost_terms)
     return prob, x, y, b
 
-
 def explain_infeasibility(players_data: List[Dict], pos_list: List[str], innings: int) -> str:
     counts = {pos: 0 for pos in pos_list}
     for d in players_data:
         for pos in d["allowed"]:
             if pos in counts:
                 counts[pos] += 1
-
     needed_benches = innings * max(0, len(players_data) - len(pos_list))
     allowed_benches = sum(d["bench_max"] for d in players_data)
 
     lines = [
-        "The schedule is infeasible with the current inputs.",
-        "",
+        "The schedule is infeasible with the current inputs.", "",
         f"- Innings per position: {innings}",
         "- Eligible players per position:",
     ]
@@ -176,9 +169,8 @@ def explain_infeasibility(players_data: List[Dict], pos_list: List[str], innings
             lines.append(f"  → No one is eligible for {pos}. Add at least one player who can play {pos}.")
     return "\n".join(lines)
 
-
-# ---------------- UI ----------------
-st.title("⚾ Softball Fielding Schedule Generator (PuLP)")
+# ---------- UI ----------
+st.title("⚾ Softball Fielding Schedule Generator")
 
 with st.sidebar:
     st.header("Game Settings")
@@ -190,50 +182,74 @@ with st.sidebar:
         "Penalty for back-to-back benches",
         options=[0,1,2,3,4,5,6,7,8,9,10],
         index=4,
-        help="Higher discourages benching the same player in two consecutive innings. 0 disables this penalty."
+        help="Higher discourages benching the same player in consecutive innings. 0 disables."
     )
 
-    st.caption(f"Positions each inning: {', '.join(pos_list)}")
+    mobile_mode = st.toggle("Mobile mode (stacked inputs)", value=True,
+                            help="Turn off for desktop grid entry.")
 
 st.subheader("Roster & Preferences")
 st.caption(
     "Enter up to 17 players. For each player, select up to five positions in priority order. "
-    "Unselected priorities are ignored. Only selected positions are eligible for that player. "
+    "Unselected priorities are ignored; only selected positions are eligible. "
     "Set 'Benchable innings' to the maximum they can sit (0 allowed)."
 )
 
 max_players = 17
-cols_header = st.columns([2.0, 1.1, 1.1, 1.1, 1.1, 1.1, 1.6])
-for c, label in zip(cols_header, ["Name", "P1", "P2", "P3", "P4", "P5", "Benchable (max)"]):
-    c.markdown(f"**{label}**")
+roster_entries: List[Dict] = []
 
-roster_entries = []
-for row in range(max_players):
-    cols = st.columns([2.0, 1.1, 1.1, 1.1, 1.1, 1.1, 1.6])
-    name = cols[0].text_input("name", key=f"name_{row}", label_visibility="collapsed")
+if mobile_mode:
+    # -------- mobile friendly: one player per card ----------
+    for row in range(max_players):
+        with st.expander(f"Player {row+1}", expanded=(row < 2)):
+            name = st.text_input("Name", key=f"name_m_{row}")
+            benchable = st.number_input(
+                "Benchable (max innings)",
+                min_value=0, max_value=innings, value=min(1, innings), step=1, key=f"bench_m_{row}"
+            )
+            prios, chosen = [], []
+            for pidx in range(5):
+                remaining = ["— (unused) —"] + [p for p in pos_list if p not in chosen]
+                sel = st.selectbox(
+                    f"Priority {pidx+1}",
+                    remaining,
+                    index=0,
+                    key=f"prio_m_{row}_{pidx}",
+                )
+                if sel != "— (unused) —":
+                    prios.append(sel); chosen.append(sel)
+            if name.strip():
+                roster_entries.append({"name": name.strip(), "prios": prios, "bench_max": int(benchable)})
+else:
+    # -------- desktop grid ----------
+    cols_header = st.columns([2.0, 1.1, 1.1, 1.1, 1.1, 1.1, 1.4])
+    for c, label in zip(cols_header, ["Name","P1","P2","P3","P4","P5","Benchable (max)"]):
+        c.markdown(f"**{label}**")
 
-    chosen, prios = [], []
-    for pidx in range(5):
-        remaining = ["— (unused) —"] + [p for p in pos_list if p not in chosen]
-        sel = cols[pidx + 1].selectbox(
-            f"prio{pidx+1}",
-            remaining,
-            index=0,
-            key=f"prio_{row}_{pidx}",
-            label_visibility="collapsed",
+    for row in range(max_players):
+        cols = st.columns([2.0, 1.1, 1.1, 1.1, 1.1, 1.1, 1.4])
+        name = cols[0].text_input("name", key=f"name_{row}", label_visibility="collapsed")
+
+        chosen, prios = [], []
+        for pidx in range(5):
+            remaining = ["— (unused) —"] + [p for p in pos_list if p not in chosen]
+            sel = cols[pidx + 1].selectbox(
+                f"prio{pidx+1}",
+                remaining,
+                index=0,
+                key=f"prio_{row}_{pidx}",
+                label_visibility="collapsed",
+            )
+            if sel != "— (unused) —":
+                prios.append(sel); chosen.append(sel)
+
+        benchable = cols[6].number_input(
+            "bench",
+            min_value=0, max_value=innings, value=min(1, innings), step=1,
+            key=f"bench_{row}", label_visibility="collapsed",
         )
-        if sel != "— (unused) —":
-            prios.append(sel)
-            chosen.append(sel)
-
-    benchable = cols[6].number_input(
-        "bench",
-        min_value=0, max_value=innings, value=min(1, innings), step=1,
-        key=f"bench_{row}", label_visibility="collapsed",
-    )
-
-    if name.strip():
-        roster_entries.append({"name": name.strip(), "prios": prios, "bench_max": int(benchable)})
+        if name.strip():
+            roster_entries.append({"name": name.strip(), "prios": prios, "bench_max": int(benchable)})
 
 st.divider()
 generate = st.button("Generate Schedule", type="primary", use_container_width=True)
@@ -257,7 +273,7 @@ if generate:
             {"name": d["name"], "allowed": allowed, "bench_max": d["bench_max"], "prio_costs": prio_costs}
         )
 
-    # Quick feasibility check on benches
+    # benches feasibility
     needed_benches = innings * (len(players_data) - len(pos_list))
     allowed_benches = sum(p["bench_max"] for p in players_data)
     if needed_benches > 0 and allowed_benches < needed_benches:
@@ -268,9 +284,8 @@ if generate:
         st.info(explain_infeasibility(players_data, pos_list, innings))
         st.stop()
 
-    # Solve with CBC (bundled with PuLP wheel)
     prob, x, y, b = build_model(players_data, pos_list, innings, bench_streak_weight)
-    solver = pulp.PULP_CBC_CMD(msg=False, timeLimit=10)  # adjust timeLimit if you like
+    solver = pulp.PULP_CBC_CMD(msg=False, timeLimit=10)
     result_status = prob.solve(solver)
     status_str = pulp.LpStatus[result_status]
 
@@ -283,7 +298,7 @@ if generate:
                     return "Bench"
                 return {"C": "Catcher", "LCF": "LC", "RCF": "RC"}.get(pos, pos)
 
-            # Build Players × Innings grid
+            # Players × Innings grid
             rows = []
             for p_idx, name in enumerate(names):
                 row = {"Lineup #": p_idx + 1, "Name": name}
@@ -291,8 +306,7 @@ if generate:
                     assigned = None
                     for pos in pos_list:
                         if (p_idx, i, pos) in x and pulp.value(x[p_idx, i, pos]) > 0.5:
-                            assigned = pos
-                            break
+                            assigned = pos; break
                     row[str(i + 1)] = label(assigned)
                 rows.append(row)
 
@@ -307,7 +321,7 @@ if generate:
                 mime="text/csv",
             )
 
-            # Bench summary
+            # bench summary
             play_counts = {n: 0 for n in names}
             for i in range(innings):
                 for p_idx, n in enumerate(names):
@@ -330,3 +344,4 @@ if generate:
         else:
             st.error(f"No feasible schedule found. Solver status: {status_str}")
             st.info(explain_infeasibility(players_data, pos_list, innings))
+
