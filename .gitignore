@@ -1,0 +1,38 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+*.egg-info/
+.dist-info/
+.venv/
+venv/
+env/
+.build/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Streamlit ---
+.streamlit/
+# (This keeps secrets.toml and other local configs out of Git)
+
+# --- Env / secrets ---
+.env
+*.env
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Jupyter (if you ever use it) ---
+.ipynb_checkpoints/
+
+# --- Optional (uncomment if you don't want generated files in Git) ---
+# *.csv
+# *.xlsx
