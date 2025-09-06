@@ -1,5 +1,5 @@
-streamlit
-pandas
-ortools==9.9.3963
+streamlit==1.37.1
+pandas==2.2.2
+ortools==9.10.4067
 protobuf>=4.25.3,<6
 absl-py>=2,<3
