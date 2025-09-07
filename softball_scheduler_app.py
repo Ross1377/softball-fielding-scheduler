@@ -1,4 +1,4 @@
-# softball_scheduler_app.py  (PuLP edition + horizontal scroll on mobile)
+# softball_scheduler_app.py  (PuLP + data_editor for mobile-friendly horizontal scroll)
 from __future__ import annotations
 from typing import List, Dict, Tuple
 import streamlit as st
@@ -7,34 +7,22 @@ import pulp
 
 st.set_page_config(page_title="Softball Fielding Scheduler", layout="wide")
 
-# -------- CSS: enable horizontal scroll when content is wider than viewport -----
+# Slightly tighter controls
 st.markdown("""
 <style>
-/* allow the main content to scroll horizontally if something is wider */
-html, body, [data-testid="stAppViewContainer"] > .main {
-  overflow-x: auto;
-}
-
-/* make our roster grid occupy a fixed minimum width so mobile creates a swipe */
-.hscroll {
-  min-width: 1150px; /* tweak if you want a wider/narrower grid */
-}
-
-/* slightly tighter controls so it feels better on phones */
-.block-container { padding-top: 0.6rem; padding-bottom: 2rem; }
+.block-container { padding-top: .6rem; padding-bottom: 2rem; }
 [data-baseweb="select"] > div { min-height: 34px; }
 .stButton>button { height: 40px; }
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- Helpers ----------------
+# ---------- helpers ----------
 def positions_for(outfielders: int) -> List[str]:
     infield = ["P", "C", "1B", "2B", "3B", "SS"]
     of3 = ["LF", "CF", "RF"]
     of4 = ["LF", "LCF", "RCF", "RF"]
     return infield + (of3 if outfielders == 3 else of4)
 
-# priority costs (lower is better)
 PRIO_COST = {1: 0, 2: 1, 3: 3, 4: 6, 5: 10}
 
 def build_model(
@@ -63,13 +51,13 @@ def build_model(
             elig = [x[p, i, pos] for p in P if (p, i, pos) in x]
             prob += pulp.lpSum(elig) == 1
 
-    # a player plays at most one position per inning; link to y
+    # one position max per inning
     for p in P:
         for i in I:
             elig = [x[p, i, pos] for pos in pos_list if (p, i, pos) in x]
             prob += pulp.lpSum(elig) == y[p, i]
 
-    # fixed number on field
+    # fixed # on field
     need_on_field = len(pos_list)
     for i in I:
         prob += pulp.lpSum(y[p, i] for p in P) == need_on_field
@@ -83,12 +71,11 @@ def build_model(
         for i in range(innings - 2):
             prob += b[p, i] + b[p, i + 1] + b[p, i + 2] <= 2
 
-    # -------- objective --------
+    # objective
     PRIO_WEIGHT = 100
     BENCH_WEIGHT = 10
     CHANGE_WEIGHT = 1
     BENCH_STREAK_WEIGHT = int(bench_streak_weight)
-
     cost_terms = []
 
     # (A) priority costs
@@ -107,7 +94,7 @@ def build_model(
         weight = (max_bench - players_data[p]["bench_max"] + 1)
         cost_terms.append(BENCH_WEIGHT * weight * pulp.lpSum(b[p, i] for i in I))
 
-    # (C) minimize position changes between consecutive played innings
+    # (C) minimize position changes across consecutive played innings
     for p in P:
         for i in range(1, innings):
             played_both = pulp.LpVariable(f"pb_{p}_{i}", 0, 1, cat="Binary")
@@ -130,7 +117,7 @@ def build_model(
             prob += change <= played_both
             cost_terms.append(CHANGE_WEIGHT * change)
 
-    # (D) soft penalty: discourage two consecutive benches
+    # (D) discourage back-to-back benches (soft penalty)
     if BENCH_STREAK_WEIGHT > 0:
         for p in P:
             for i in range(1, innings):
@@ -171,7 +158,7 @@ def explain_infeasibility(players_data: List[Dict], pos_list: List[str], innings
             lines.append(f"  → No one is eligible for {pos}. Add at least one player who can play {pos}.")
     return "\n".join(lines)
 
-# ---------------- UI ----------------
+# ---------- UI ----------
 st.title("⚾ Softball Fielding Schedule Generator")
 
 with st.sidebar:
@@ -179,7 +166,6 @@ with st.sidebar:
     innings = st.number_input("Number of innings", 1, 12, 7, 1)
     of_choice = st.radio("Outfielders", [3, 4], index=0, horizontal=True)
     pos_list = positions_for(of_choice)
-
     bench_streak_weight = st.selectbox(
         "Penalty for back-to-back benches",
         options=[0,1,2,3,4,5,6,7,8,9,10],
@@ -190,48 +176,60 @@ with st.sidebar:
 
 st.subheader("Roster & Preferences")
 st.caption(
-    "Enter up to 17 players. For each player, select up to five positions in priority order. "
-    "Unselected priorities are ignored; only selected positions are eligible. "
-    "Set 'Benchable innings' to the maximum they can sit (0 allowed)."
+    "Enter up to 17 players (one row each). Choose up to five positions in priority order. "
+    "Unselected priorities are ignored. Set 'Benchable' to the maximum innings they can sit (0 allowed). "
+    "This table is horizontally scrollable on mobile."
 )
 
+# ----- data_editor table (horizontally scrollable, one row per player) -----
 max_players = 17
+table_cols = ["Name", "P1", "P2", "P3", "P4", "P5", "Benchable"]
+df_default = pd.DataFrame(
+    {
+        "Name": ["" for _ in range(max_players)],
+        "P1": [None]*max_players,
+        "P2": [None]*max_players,
+        "P3": [None]*max_players,
+        "P4": [None]*max_players,
+        "P5": [None]*max_players,
+        "Benchable": [min(1, innings)]*max_players,
+    }
+)
+
+opt_list = ["— (unused) —"] + pos_list
+col_config = {
+    "Name": st.column_config.TextColumn("Name"),
+    "P1": st.column_config.SelectboxColumn("P1", options=opt_list, default="— (unused) —"),
+    "P2": st.column_config.SelectboxColumn("P2", options=opt_list, default="— (unused) —"),
+    "P3": st.column_config.SelectboxColumn("P3", options=opt_list, default="— (unused) —"),
+    "P4": st.column_config.SelectboxColumn("P4", options=opt_list, default="— (unused) —"),
+    "P5": st.column_config.SelectboxColumn("P5", options=opt_list, default="— (unused) —"),
+    "Benchable": st.column_config.NumberColumn(
+        "Benchable (max)", min_value=0, max_value=innings, step=1, default=min(1, innings)
+    ),
+}
+df = st.data_editor(
+    df_default,
+    column_config=col_config,
+    num_rows="fixed",
+    use_container_width=True,
+    hide_index=True,
+)
+
+# parse table to roster entries
 roster_entries: List[Dict] = []
-
-# --------- Wide grid wrapped in a scrollable div ----------
-st.markdown('<div class="hscroll">', unsafe_allow_html=True)
-
-cols_header = st.columns([2.0, 1.1, 1.1, 1.1, 1.1, 1.1, 1.4])
-for c, label in zip(cols_header, ["Name","P1","P2","P3","P4","P5","Benchable (max)"]):
-    c.markdown(f"**{label}**")
-
-for row in range(max_players):
-    cols = st.columns([2.0, 1.1, 1.1, 1.1, 1.1, 1.1, 1.4])
-    name = cols[0].text_input("name", key=f"name_{row}", label_visibility="collapsed")
-
-    chosen, prios = [], []
-    for pidx in range(5):
-        remaining = ["— (unused) —"] + [p for p in pos_list if p not in chosen]
-        sel = cols[pidx + 1].selectbox(
-            f"prio{pidx+1}",
-            remaining,
-            index=0,
-            key=f"prio_{row}_{pidx}",
-            label_visibility="collapsed",
-        )
-        if sel != "— (unused) —":
-            prios.append(sel); chosen.append(sel)
-
-    benchable = cols[6].number_input(
-        "bench",
-        min_value=0, max_value=innings, value=min(1, innings), step=1,
-        key=f"bench_{row}", label_visibility="collapsed",
-    )
-
-    if name.strip():
-        roster_entries.append({"name": name.strip(), "prios": prios, "bench_max": int(benchable)})
-
-st.markdown('</div>', unsafe_allow_html=True)
+for _, row in df.iterrows():
+    name = (row.get("Name") or "").strip()
+    if not name:
+        continue
+    prios_raw = [row.get(c) for c in ["P1","P2","P3","P4","P5"]]
+    prios = []
+    seen = set()
+    for r in prios_raw:
+        if r and r != "— (unused) —" and r not in seen:
+            prios.append(r); seen.add(r)
+    benchable = int(row.get("Benchable") or 0)
+    roster_entries.append({"name": name, "prios": prios, "bench_max": benchable})
 
 st.divider()
 generate = st.button("Generate Schedule", type="primary", use_container_width=True)
@@ -293,7 +291,6 @@ if generate:
 
             grid = pd.DataFrame(rows, columns=["Lineup #", "Name"] + [str(i + 1) for i in range(innings)])
             st.success(f"Schedule generated. Solver status: {status_str}")
-            # dataframe itself will also let you scroll if wider than viewport
             st.dataframe(grid, use_container_width=True, hide_index=True)
 
             st.download_button(
@@ -326,4 +323,3 @@ if generate:
         else:
             st.error(f"No feasible schedule found. Solver status: {status_str}")
             st.info(explain_infeasibility(players_data, pos_list, innings))
-
