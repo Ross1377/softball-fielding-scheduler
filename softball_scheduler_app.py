@@ -90,10 +90,7 @@ section.main{
   margin:0 !important;
   padding-left:max(12px, env(safe-area-inset-left));
   padding-right:max(12px, env(safe-area-inset-right));
-}
 
-/* Neutralize Streamlit's centered max-width that can hide edges */
-section.main .block-container{ max-width:none !important; }
 
 /* Make the editor/table adopt natural width (no nested scrollers) */
 [data-testid="stDataFrame"],
@@ -353,7 +350,7 @@ pos_list = positions_for(of_choice)
 
 # NEW: positions to avoid consecutive SAME innings
 avoid_seq_positions = st.multiselect(
-    "Avoid sequential innings for:",
+    "Avoid consecutive innings for:",
     options=pos_list,
     default=[],
     help="Selected positions will be encouraged to rotate (penalize back-to-back same). Others get a small reward to stay the same."
@@ -397,16 +394,14 @@ st.markdown("""
     <div class="legend-title">P1–P5</div>
     <div class="legend-text">
       Priority order of allowed positions for a player (P1 = highest).
-      The solver prefers higher priorities and will only assign positions
-      that appear in the selected priorities for that player.
+      At least one position must be selected for each player.
     </div>
   </div>
 
   <div class="legend-card">
     <div class="legend-title">Bench (max)</div>
     <div class="legend-text">
-      Maximum innings this player can sit. Set to <b>0</b> if they must play
-      every inning.
+      Maximum innings this player can sit. <b>0</b> is valid.
     </div>
   </div>
 </div>
@@ -437,6 +432,24 @@ st.markdown("""
 }
 @media (max-width: 640px){
   .legend-text { font-size: .86rem; }
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+#roster-grid { position: relative !important; }
+
+/* Force the grid’s toolbar into the top-right corner of the roster editor */
+#roster-grid [data-testid="stElementToolbar"],
+#roster-grid div[aria-label="Data editor toolbar"],
+#roster-grid div[aria-label="Table toolbar"]{
+  position: absolute !important;
+  right: .35rem !important;
+  left: auto !important;
+  top: .35rem !important;
+  transform: none !important;
+  z-index: 2 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -647,6 +660,7 @@ if gen:
 
 # Close wrapper
 st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
