@@ -358,12 +358,73 @@ avoid_seq_positions = st.multiselect(
     default=[],
     help="Selected positions will be encouraged to rotate (penalize back-to-back same). Others get a small reward to stay the same."
 )
+# --- Move Streamlit data-editor toolbar to the far-right, inside the table ---
+st.markdown("""
+<style>
+/* Anchor the table container so the toolbar can be positioned relative to it */
+.stDataFrame, [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
+  position: relative !important;
+}
+
+/* Reposition the floating toolbar (covers multiple Streamlit versions/selectors) */
+.stDataFrame [data-testid="stElementToolbar"],
+[data-testid="stDataFrame"] [data-testid="stElementToolbar"],
+[data-testid="stDataEditor"] [data-testid="stElementToolbar"],
+div[aria-label="Data editor toolbar"],
+div[aria-label="Table toolbar"] {
+  position: absolute !important;
+  left: auto !important;
+  right: .35rem !important;    /* push to far-right */
+  top: .35rem !important;      /* sit just inside the top of the table */
+  transform: none !important;
+  z-index: 2 !important;       /* above grid chrome but not your headings */
+}
+
+/* Add a tiny cushion above the table so the toolbar never touches your title/legend */
+.roster-padding { height: .4rem; }
+</style>
+""", unsafe_allow_html=True)
 
 st.subheader("Roster & Preferences")
 
 # small vertical gap so the editor toolbar doesn't cover the heading
 st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
 
+# --- Column legend shown above the table ---
+st.markdown("""
+<style>
+/* compact, responsive legend chips */
+.legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: .5rem .75rem;
+  margin: .35rem 0 0.6rem 0;
+}
+.legend .chip{
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.12);
+  padding: .55rem .7rem;
+  border-radius: .55rem;
+  font-size: .95rem;
+  line-height: 1.25rem;
+}
+.legend b {font-weight: 700}
+</style>
+
+<div class="legend">
+  <div class="chip"><b>Name</b> — Player’s name.</div>
+  <div class="chip"><b>P1–P5</b> — Position preferences in priority order.  
+  Leave unused priorities blank; only chosen positions are eligible.</div>
+  <div class="chip"><b>Bench (max)</b> — Max innings this player may sit (0 = never bench).</div>
+</div>
+
+<small>
+<b>Position codes:</b> <code>P</code>, <code>C</code>, <code>1B</code>, <code>2B</code>,
+<code>3B</code>, <code>SS</code>, <code>LF</code>, <code>CF</code>, <code>RF</code>
+</small>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="roster-padding"></div>', unsafe_allow_html=True)
 
 # Input table (horizontally laid out; page handles scrolling)
 max_players = 17
@@ -570,6 +631,7 @@ if gen:
 
 # Close wrapper
 st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
