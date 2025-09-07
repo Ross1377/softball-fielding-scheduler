@@ -1,7 +1,6 @@
 [theme]
-base = "dark"
-primaryColor = "#FFD166"          # gold accents
-backgroundColor = "#0A1F44"       # navy
-secondaryBackgroundColor = "#122B59"  # lighter navy
-textColor = "#F3F6FF"             # near-white
+primaryColor = "#4cc3ff"
+backgroundColor = "#0b1f3a"
+secondaryBackgroundColor = "#122a4e"
+textColor = "#ffffff"
 font = "sans serif"
