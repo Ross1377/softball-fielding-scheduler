@@ -31,6 +31,16 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
     menu_items={"Get help": None, "Report a bug": None, "About": None},
 )
+# Keep the content from stretching too wide on big monitors,
+# so the "Penalty" select isn't way off to the right.
+st.markdown(
+    """
+    <style>
+      .block-container { max-width: 1100px !important; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # Navy/dark fallback + page-level horizontal scroll + hide header menu
 st.markdown("""
@@ -310,7 +320,7 @@ def reorder_with_arrows(schedule_df: pd.DataFrame, innings: int, name_col: str =
 st.title("🥎 Softball Fielding Schedule Generator")
 
 # Game settings (top)
-c1, c2, c3 = st.columns([1, 1, 1])
+c1, c2, c3 = st.columns([1.2, 1.0, 1.1])
 with c1:
     innings = st.number_input("Number of innings", 1, 12, 7, step=1)
 with c2:
@@ -353,19 +363,15 @@ df_default = pd.DataFrame({
 
 opt_list = ["— (unused) —"] + pos_list
 col_cfg = {
-    # Name: much narrower than before
-    "Name":  st.column_config.TextColumn("Name", width="small"),
-
-    # Priorities stay compact
+    "Name":  st.column_config.TextColumn("Name", width="medium"),
     "P1":    st.column_config.SelectboxColumn("P1", options=opt_list, default="— (unused) —", width="small"),
     "P2":    st.column_config.SelectboxColumn("P2", options=opt_list, default="— (unused) —", width="small"),
     "P3":    st.column_config.SelectboxColumn("P3", options=opt_list, default="— (unused) —", width="small"),
     "P4":    st.column_config.SelectboxColumn("P4", options=opt_list, default="— (unused) —", width="small"),
     "P5":    st.column_config.SelectboxColumn("P5", options=opt_list, default="— (unused) —", width="small"),
-
-    # Bench slightly narrower than before (but still readable)
-    "Bench": st.column_config.NumberColumn("Bench (max)", min_value=0, max_value=innings, step=1, width="small"),
+    "Bench": st.column_config.NumberColumn("Bench (max)", min_value=0, max_value=innings, step=1, width="medium"),
 }
+
 
 
 df = st.data_editor(
@@ -548,6 +554,7 @@ if gen:
 
 # Close wrapper
 st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
