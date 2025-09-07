@@ -470,7 +470,7 @@ if gen:
             schedule_df = reorder_with_arrows(schedule_df, innings=innings, name_col="Name")
 
             # Render as simple HTML table so page handles horizontal scroll
-            name_w = 220
+            name_w = 140
             col_w = 120
             total_w = name_w + innings * col_w + 60
 
@@ -548,6 +548,7 @@ if gen:
 
 # Close wrapper
 st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
