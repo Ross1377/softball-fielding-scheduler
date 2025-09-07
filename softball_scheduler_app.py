@@ -13,37 +13,47 @@ st.set_page_config(page_title="Softball Fielding Scheduler", layout="wide")
 # ==============================
 st.markdown("""
 <style>
-/* --- Navy color fallback (your .streamlit/config.toml provides the real theme) --- */
+/* ----- Navy fallback colors (theme still comes from .streamlit/config.toml) ----- */
 :root {
   --bg: #0a1f44;              /* navy */
   --bg2:#122b59;              /* slightly lighter navy */
   --text:#f3f6ff;             /* near-white */
   --accent:#ffd166;           /* soft gold */
 }
-/* app background and text */
 [data-testid="stAppViewContainer"] { background: var(--bg); color: var(--text); }
 section.main > div, h1,h2,h3,h4,h5,h6,label,p,span { color: var(--text); }
 [data-testid="stHeader"] { background: transparent; }
 [data-testid="stSidebar"] { background: var(--bg2); }
 
-/* --- Make the PAGE (not the table) horizontally scrollable on small screens --- */
-/* Force the main content area to be wider than a phone viewport.
-   Adjust 1350px if you want more/less width. */
-.block-container { min-width: 1350px; }
+/* ===== Page-level horizontal scroll that behaves on iOS =====
+   Make the Streamlit *app container* scroll horizontally, not the table. */
+html, body { width: 100%; overflow-x: hidden; }     /* keep body stable */
+[data-testid="stAppViewContainer"]{
+  overflow-x: auto !important;                      /* sideways pan lives here */
+  -webkit-overflow-scrolling: touch;               /* smooth iOS scroll */
+}
 
-/* Ensure the data editor uses the page width and doesn't enforce its own inner scroller */
-[data-testid="stDataFrame"] { width: 1350px !important; }
-[data-testid="stDataFrame"] > div { overflow: visible !important; }
+/* Give the page content a wide canvas but don’t center it off-screen */
+.block-container{
+  max-width: none !important;
+  width: 1350px !important;                         /* adjust to taste */
+  margin: 0 !important;                             /* prevent centered overflow */
+  padding-left: 12px; padding-right: 12px;
+}
 
-/* --- Smaller UI to fit more on screen; users can pinch-to-zoom as desired --- */
-html, body, [data-testid="stAppViewContainer"] { font-size: 15px; }             /* base text */
-[data-testid="stDataFrame"] div[role="grid"] { font-size: 0.90rem; }            /* grid cells */
+/* Let the data editor stretch to the page canvas (no inner scroller) */
+[data-testid="stDataFrame"]{ width: 100% !important; }
+
+/* Compact UI, users can pinch-zoom as needed */
+html, body, [data-testid="stAppViewContainer"] { font-size: 15px; }
+[data-testid="stDataFrame"] div[role="grid"] { font-size: 0.90rem; }
 .stButton>button, .stDownloadButton>button { background: var(--accent); color:#000; border:0; }
 
-/* Data editor background on dark theme */
+/* Dark table background */
 [data-testid="stTable"], [data-testid="stDataFrame"] { background: var(--bg2); }
 </style>
 """, unsafe_allow_html=True)
+
 
 # ---------- helpers ----------
 def positions_for(outfielders: int) -> List[str]:
@@ -352,3 +362,4 @@ if generate:
         else:
             st.error(f"No feasible schedule found. Solver status: {status_str}")
             st.info(explain_infeasibility(players_data, pos_list, innings))
+
