@@ -5,7 +5,7 @@
 # - benchable innings per player
 # - hard cap: max 2 consecutive benches
 # - soft penalty for back-to-back benches (dropdown weight)
-# - NEW: "Avoid sequential innings for:" (encourage rotation for selected positions only)
+# - NEW: "Avoid consecutive innings for:" (encourage rotation for selected positions only)
 # - gentle reward to keep same position for all other positions
 # - post-solve ARROW CONTROLS to reorder innings (◀ ▶) and lineup (▲ ▼)
 #
@@ -570,6 +570,7 @@ if gen:
 
 # Close wrapper
 st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
