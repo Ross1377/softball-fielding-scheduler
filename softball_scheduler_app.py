@@ -31,6 +31,22 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
     menu_items={"Get help": None, "Report a bug": None, "About": None},
 )
+
+st.markdown("""
+<style>
+/* Hide Streamlit's default header bar */
+header[data-testid="stHeader"]{
+  height: 0px !important;
+  visibility: hidden;
+}
+
+/* Add a little top padding back to the content so nothing is cramped */
+div.block-container{
+  padding-top: 1rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # Keep the content from stretching too wide on big monitors,
 # so the "Penalty" select isn't way off to the right.
 st.markdown(
@@ -554,6 +570,7 @@ if gen:
 
 # Close wrapper
 st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
