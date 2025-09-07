@@ -310,7 +310,7 @@ def reorder_with_arrows(schedule_df: pd.DataFrame, innings: int, name_col: str =
 st.title("🥎 Softball Fielding Schedule Generator")
 
 # Game settings (top)
-c1, c2, c3 = st.columns([1, 1, 2])
+c1, c2, c3 = st.columns([1, 1, 1])
 with c1:
     innings = st.number_input("Number of innings", 1, 12, 7, step=1)
 with c2:
@@ -335,6 +335,10 @@ avoid_seq_positions = st.multiselect(
 
 st.subheader("Roster & Preferences")
 
+# small vertical gap so the editor toolbar doesn't cover the heading
+st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
+
+
 # Input table (horizontally laid out; page handles scrolling)
 max_players = 17
 df_default = pd.DataFrame({
@@ -349,14 +353,20 @@ df_default = pd.DataFrame({
 
 opt_list = ["— (unused) —"] + pos_list
 col_cfg = {
-    "Name":  st.column_config.TextColumn("Name", width="large"),
+    # Name: much narrower than before
+    "Name":  st.column_config.TextColumn("Name", width="small"),
+
+    # Priorities stay compact
     "P1":    st.column_config.SelectboxColumn("P1", options=opt_list, default="— (unused) —", width="small"),
     "P2":    st.column_config.SelectboxColumn("P2", options=opt_list, default="— (unused) —", width="small"),
     "P3":    st.column_config.SelectboxColumn("P3", options=opt_list, default="— (unused) —", width="small"),
     "P4":    st.column_config.SelectboxColumn("P4", options=opt_list, default="— (unused) —", width="small"),
     "P5":    st.column_config.SelectboxColumn("P5", options=opt_list, default="— (unused) —", width="small"),
-    "Bench": st.column_config.NumberColumn("Bench (max)", min_value=0, max_value=innings, step=1, width="medium"),
+
+    # Bench slightly narrower than before (but still readable)
+    "Bench": st.column_config.NumberColumn("Bench (max)", min_value=0, max_value=innings, step=1, width="small"),
 }
+
 
 df = st.data_editor(
     df_default,
@@ -538,5 +548,6 @@ if gen:
 
 # Close wrapper
 st.markdown('</div>', unsafe_allow_html=True)
+
 
 
