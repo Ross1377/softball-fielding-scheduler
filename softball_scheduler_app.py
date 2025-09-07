@@ -1,18 +1,47 @@
-# softball_scheduler_app.py  (PuLP + data_editor for mobile-friendly horizontal scroll)
+# softball_scheduler_app.py  (PuLP + data_editor; page-level horizontal scroll; wider Name; smaller UI)
 from __future__ import annotations
 from typing import List, Dict, Tuple
 import streamlit as st
 import pandas as pd
 import pulp
 
+# Page config
 st.set_page_config(page_title="Softball Fielding Scheduler", layout="wide")
 
-# Slightly tighter controls
+# ==============================
+# Theme + layout CSS (navy + page-level horizontal scroll, smaller UI)
+# ==============================
 st.markdown("""
 <style>
-.block-container { padding-top: .6rem; padding-bottom: 2rem; }
-[data-baseweb="select"] > div { min-height: 34px; }
-.stButton>button { height: 40px; }
+/* --- Navy color fallback (your .streamlit/config.toml provides the real theme) --- */
+:root {
+  --bg: #0a1f44;              /* navy */
+  --bg2:#122b59;              /* slightly lighter navy */
+  --text:#f3f6ff;             /* near-white */
+  --accent:#ffd166;           /* soft gold */
+}
+/* app background and text */
+[data-testid="stAppViewContainer"] { background: var(--bg); color: var(--text); }
+section.main > div, h1,h2,h3,h4,h5,h6,label,p,span { color: var(--text); }
+[data-testid="stHeader"] { background: transparent; }
+[data-testid="stSidebar"] { background: var(--bg2); }
+
+/* --- Make the PAGE (not the table) horizontally scrollable on small screens --- */
+/* Force the main content area to be wider than a phone viewport.
+   Adjust 1350px if you want more/less width. */
+.block-container { min-width: 1350px; }
+
+/* Ensure the data editor uses the page width and doesn't enforce its own inner scroller */
+[data-testid="stDataFrame"] { width: 1350px !important; }
+[data-testid="stDataFrame"] > div { overflow: visible !important; }
+
+/* --- Smaller UI to fit more on screen; users can pinch-to-zoom as desired --- */
+html, body, [data-testid="stAppViewContainer"] { font-size: 15px; }             /* base text */
+[data-testid="stDataFrame"] div[role="grid"] { font-size: 0.90rem; }            /* grid cells */
+.stButton>button, .stDownloadButton>button { background: var(--accent); color:#000; border:0; }
+
+/* Data editor background on dark theme */
+[data-testid="stTable"], [data-testid="stDataFrame"] { background: var(--bg2); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -51,7 +80,7 @@ def build_model(
             elig = [x[p, i, pos] for p in P if (p, i, pos) in x]
             prob += pulp.lpSum(elig) == 1
 
-    # one position max per inning
+    # one position max per inning (and link to y)
     for p in P:
         for i in I:
             elig = [x[p, i, pos] for pos in pos_list if (p, i, pos) in x]
@@ -161,29 +190,27 @@ def explain_infeasibility(players_data: List[Dict], pos_list: List[str], innings
 # ---------- UI ----------
 st.title("⚾ Softball Fielding Schedule Generator")
 
-with st.sidebar:
-    st.header("Game Settings")
+# Top settings (visible on mobile; no sidebar)
+with st.expander("Game Settings", expanded=True):
     innings = st.number_input("Number of innings", 1, 12, 7, 1)
     of_choice = st.radio("Outfielders", [3, 4], index=0, horizontal=True)
-    pos_list = positions_for(of_choice)
     bench_streak_weight = st.selectbox(
         "Penalty for back-to-back benches",
         options=[0,1,2,3,4,5,6,7,8,9,10],
         index=4,
         help="Higher discourages benching the same player in consecutive innings. 0 disables."
     )
+    pos_list = positions_for(of_choice)
     st.caption(f"Positions each inning: {', '.join(pos_list)}")
 
 st.subheader("Roster & Preferences")
 st.caption(
     "Enter up to 17 players (one row each). Choose up to five positions in priority order. "
-    "Unselected priorities are ignored. Set 'Benchable' to the maximum innings they can sit (0 allowed). "
-    "This table is horizontally scrollable on mobile."
+    "Unselected priorities are ignored. Set 'Benchable' to the maximum innings they can sit (0 allowed)."
 )
 
-# ----- data_editor table (horizontally scrollable, one row per player) -----
+# ----- data_editor table (page-level scroll; wider Name; compact P-columns) -----
 max_players = 17
-table_cols = ["Name", "P1", "P2", "P3", "P4", "P5", "Benchable"]
 df_default = pd.DataFrame(
     {
         "Name": ["" for _ in range(max_players)],
@@ -198,21 +225,23 @@ df_default = pd.DataFrame(
 
 opt_list = ["— (unused) —"] + pos_list
 col_config = {
-    "Name": st.column_config.TextColumn("Name"),
-    "P1": st.column_config.SelectboxColumn("P1", options=opt_list, default="— (unused) —"),
-    "P2": st.column_config.SelectboxColumn("P2", options=opt_list, default="— (unused) —"),
-    "P3": st.column_config.SelectboxColumn("P3", options=opt_list, default="— (unused) —"),
-    "P4": st.column_config.SelectboxColumn("P4", options=opt_list, default="— (unused) —"),
-    "P5": st.column_config.SelectboxColumn("P5", options=opt_list, default="— (unused) —"),
+    "Name": st.column_config.TextColumn("Name", width="large"),
+    "P1": st.column_config.SelectboxColumn("P1", options=opt_list, default="— (unused) —", width="small"),
+    "P2": st.column_config.SelectboxColumn("P2", options=opt_list, default="— (unused) —", width="small"),
+    "P3": st.column_config.SelectboxColumn("P3", options=opt_list, default="— (unused) —", width="small"),
+    "P4": st.column_config.SelectboxColumn("P4", options=opt_list, default="— (unused) —", width="small"),
+    "P5": st.column_config.SelectboxColumn("P5", options=opt_list, default="— (unused) —", width="small"),
     "Benchable": st.column_config.NumberColumn(
-        "Benchable (max)", min_value=0, max_value=innings, step=1, default=min(1, innings)
+        "Benchable (max)", min_value=0, max_value=innings, step=1, default=min(1, innings), width="small"
     ),
 }
+
+# Use the full (forced) page width; no inner scroll
 df = st.data_editor(
     df_default,
     column_config=col_config,
     num_rows="fixed",
-    use_container_width=True,
+    use_container_width=True,   # fills the 1350px page width we forced above
     hide_index=True,
 )
 
