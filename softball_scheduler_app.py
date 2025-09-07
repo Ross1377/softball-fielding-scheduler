@@ -10,62 +10,46 @@ import pulp
 st.set_page_config(page_title="Softball Fielding Scheduler", layout="wide")
 
 # ------------- NAVY THEME (fallback if .streamlit/config.toml isn't present) -------------
+# --- THEME + UI OVERRIDES (mobile-friendly, high contrast) ---
 st.markdown("""
 <style>
+/* --- enforce dark/navy look even if config.toml hasn't loaded yet --- */
 :root{
-  --bg:#0b1f3a;             /* navy */
-  --bg2:#122a4e;            /* slightly lighter navy */
-  --fg:#ffffff;
-  --accent:#4cc3ff;
+  --bg:#0b1f3a;            /* navy */
+  --bg2:#122a4e;           /* darker navy */
+  --fg:#ffffff;            /* white text */
+  --btn:#ff5a5a;           /* red primary button */
+}
+[data-testid="stAppViewContainer"], body { background:var(--bg) !important; color:var(--fg) !important; }
+section.main .block-container { background:var(--bg) !important; }
+
+/* --- high-contrast text on mobile (labels default to low-opacity otherwise) --- */
+label, .stMarkdown, .stText, .stCaption, .stRadio, .stSelectbox, .stNumberInput, .stDataFrame, .stTable {
+  color:#fff !important; opacity:1 !important;
+}
+/* input text inside widgets */
+input, textarea, select, [data-baseweb="select"] *, .stSelectbox div, .stNumberInput input {
+  color:#fff !important;
 }
 
-/* Fallback dark theme if config.toml not applied */
-[data-testid="stAppViewContainer"], body{
-  background:var(--bg) !important; color:var(--fg) !important;
-}
-section.main .block-container{ background:var(--bg) !important; }
-
-/* Links / primary buttons */
-a, .stButton>button{ color:var(--accent) !important; }
-/* Cards & widgets */
-.stSelectbox, .stNumberInput, .stRadio, .stDataFrame, .stDownloadButton, .stDownloadButton>button,
-[data-testid="stDataFrame"], [data-testid="stTable"]{
-  color:var(--fg) !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# --------- LAYOUT CSS: PAGE is the ONLY horizontal scroller (no nested) ---------
-st.markdown("""
-<style>
-/* 1) The page (main section) scrolls horizontally */
-section.main{
-  overflow-x:auto !important;
-  -webkit-overflow-scrolling:touch;
-  overscroll-behavior-x:contain;
+/* --- primary button: red background, BLACK text for contrast --- */
+.stButton > button {
+  background: var(--btn) !important;
+  color: #000 !important;
+  border: 0 !important;
+  box-shadow: none !important;
 }
 
-/* 2) Wrap everything in a natural-width canvas so both edges are reachable */
-.page-canvas{
-  display:inline-block;              /* shrink-to-fit */
-  width:max-content;                 /* natural width (content defines it) */
-  min-width:100%;                    /* never narrower than viewport */
-  margin:0 !important;               /* no centering on small screens */
-  padding-left:max(12px, env(safe-area-inset-left));
-  padding-right:max(12px, env(safe-area-inset-right));
-}
+/* --- hide Streamlit's header menu & extra chrome --- */
+#MainMenu {visibility:hidden;}
+footer {visibility:hidden;}
+[data-testid="stToolbar"] {display:none !important;}                /* three-dot menu bar */
+[data-testid="baseButton-headerNoPadding"] {display:none !important;}
+header [data-testid="collapsedControl"] {display:none !important;}  /* hamburger when sidebar collapsed */
 
-/* 3) Neutralize Streamlit's centered max-width */
-section.main .block-container{ max-width:none !important; }
-
-/* 4) Nuke ALL nested scrollbars inside the data editor */
-[data-testid="stDataFrame"],
-[data-testid="stDataFrame"] *{
-  overflow:visible !important;       /* disable inner scroll areas */
-}
-
-/* Slightly smaller base size so more fits; users can pinch-zoom */
-html, body, [data-testid="stAppViewContainer"]{ font-size:15px; }
+/* keep our navy panels consistent */
+[data-testid="stHeader"] {background:transparent !important;}
+[data-testid="stSidebar"] {background:var(--bg2) !important; color:#fff !important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -328,4 +312,5 @@ if st.button("Generate Schedule", type="primary", use_container_width=True):
         st.info(explain_infeasibility(players_data,pos_list,innings))
 
 st.markdown('</div>', unsafe_allow_html=True)
+
 
