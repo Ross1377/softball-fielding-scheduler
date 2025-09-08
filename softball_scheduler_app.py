@@ -329,7 +329,6 @@ def reorder_with_arrows(base_df: pd.DataFrame, innings: int, name_col: str = "Na
     ordered = apply_lineup_order(ordered, ln_ord, name_col)
     return ordered
 
-
 # ---------------- UI ----------------
 
 st.title("🥎 Softball Fielding Schedule Generator")
@@ -402,6 +401,14 @@ else:
     for c in ["P1","P2","P3","P4","P5"]:
         st.session_state["roster_df"][c] = st.session_state["roster_df"][c].fillna(UNUSED)
 
+# Ensure existing selections remain valid if OF layout changes (e.g., LCF/RCF appear/disappear)
+valid_opts = set([UNUSED] + pos_list)
+for c in ["P1","P2","P3","P4","P5"]:
+    st.session_state["roster_df"][c] = st.session_state["roster_df"][c].where(
+        st.session_state["roster_df"][c].isin(valid_opts),
+        other=UNUSED
+    )
+
 opt_list = [UNUSED] + pos_list
 col_cfg = {
     "Name":  st.column_config.TextColumn("Name", width="medium"),
@@ -413,24 +420,38 @@ col_cfg = {
     "Bench": st.column_config.NumberColumn("Bench (max)", min_value=0, max_value=innings, step=1, width="medium"),
 }
 
-# Data editor (persisted)
+# --- on_change callback to persist first edits immediately ---
+def _persist_roster_from_editor():
+    try:
+        edited = st.session_state["roster_editor"]
+        for c in ["P1","P2","P3","P4","P5"]:
+            edited[c] = edited[c].fillna(UNUSED)
+            edited[c] = edited[c].where(edited[c].isin(valid_opts), other=UNUSED)
+        edited["Name"]  = edited["Name"].fillna("")
+        edited["Bench"] = edited["Bench"].fillna(0)
+        st.session_state["roster_df"] = edited.copy()
+    except Exception:
+        pass
+
+# Data editor (persisted + callback)
 st.markdown('<div id="roster-grid">', unsafe_allow_html=True)
-df = st.data_editor(
+st.data_editor(
     st.session_state["roster_df"],
     column_config=col_cfg,
     num_rows="fixed",
     hide_index=True,
     use_container_width=False,   # page does the sideways scroll
     key="roster_editor",
+    on_change=_persist_roster_from_editor,
 )
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Save edits so the table survives reruns and after Generate
-st.session_state["roster_df"] = df
+# For downstream parsing, always read the latest editor value if present
+df = st.session_state.get("roster_editor", st.session_state["roster_df"]).copy()
 
 # Parse roster entries (ignore UNUSED)
 players_data: List[Dict] = []
-for _, row in st.session_state["roster_df"].iterrows():
+for _, row in df.iterrows():
     name = (row.get("Name") or "").strip()
     if not name:
         continue
@@ -548,8 +569,8 @@ if gen:
 
 def render_schedule_and_download(ordered_df: pd.DataFrame, innings: int):
     # Render as simple HTML table so the PAGE scrolls horizontally
-    name_w = 180
-    col_w = 120
+    name_w = 180   # (reverted) Name column width you liked
+    col_w  = 120   # inning columns
     total_w = name_w + innings * col_w + 60
 
     def df_to_html_table(df: pd.DataFrame) -> str:
@@ -616,5 +637,4 @@ if base is not None:
 
 # Close wrapper
 st.markdown('</div>', unsafe_allow_html=True)
-
 
