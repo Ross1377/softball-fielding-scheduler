@@ -1,4 +1,4 @@
-# softball_scheduler_app.py — Streamlit + PuLP (CBC) scheduler (stateful)
+# softball_scheduler_app.py — Streamlit + PuLP (CBC) scheduler (stateful, mobile-friendly)
 # - 3 or 4 outfielders
 # - up to 17 players
 # - per-player priority positions (P1..P5)
@@ -7,7 +7,7 @@
 # - soft penalty for back-to-back benches (dropdown weight)
 # - "Avoid sequential innings for:" (encourage rotation for selected positions only)
 # - gentle reward to keep same position for all other positions
-# - post-solve ARROW CONTROLS to reorder innings (◀ ▶) and lineup (▲ ▼)
+# - arrow controls to reorder innings (◀ ▶) and lineup (▲ ▼)
 # - persists roster grid and solved schedule across reruns
 #
 # requirements.txt:
@@ -23,6 +23,7 @@ import streamlit as st
 import pandas as pd
 import pulp
 
+UNUSED = "— (unused) —"  # placeholder that is ignored by the solver
 
 # ---------------- Page & CSS (mobile-robust + dark) ----------------
 
@@ -38,13 +39,6 @@ st.markdown("""
 <style>
 header[data-testid="stHeader"]{ height:0 !important; visibility:hidden; }
 div.block-container{ padding-top:1rem; }
-</style>
-""", unsafe_allow_html=True)
-
-# Keep content from stretching too wide so top controls stay together
-st.markdown("""
-<style>
-.block-container { max-width: 1100px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -79,6 +73,9 @@ section.main{
   padding-left:max(12px, env(safe-area-inset-left));
   padding-right:max(12px, env(safe-area-inset-right));
 }
+
+/* Constrain ONLY the top controls so the penalty select isn't far-right on big screens */
+.top-controls{ max-width:1100px; }
 
 /* Data editor: avoid nested scrollers */
 [data-testid="stDataFrame"],
@@ -137,7 +134,6 @@ input, textarea, select, [data-baseweb="select"] *, .stSelectbox div, .stNumberI
 # Wrap everything so CSS can measure natural width
 st.markdown('<div class="page-canvas">', unsafe_allow_html=True)
 
-
 # ---------------- Helpers ----------------
 
 def positions_for(outfielders: int) -> List[str]:
@@ -148,7 +144,6 @@ def positions_for(outfielders: int) -> List[str]:
 
 # Lower is better; steeper costs favor higher priority
 PRIO_COST = {1: 0, 2: 1, 3: 3, 4: 6, 5: 10}
-
 
 # ---------------- Solver (PuLP + CBC) ----------------
 
@@ -262,7 +257,6 @@ def solve_schedule(prob: pulp.LpProblem) -> Tuple[str, float]:
     status = prob.solve(solver)
     return pulp.LpStatus[status], pulp.value(prob.objective)
 
-
 # ---------------- Arrow-based reordering (innings & lineup) ----------------
 
 def _init_inning_order(innings: int, key: str = "inning_order"):
@@ -340,7 +334,8 @@ def reorder_with_arrows(base_df: pd.DataFrame, innings: int, name_col: str = "Na
 
 st.title("🥎 Softball Fielding Schedule Generator")
 
-# Game settings (top)
+# Top controls (kept tight with .top-controls wrapper)
+st.markdown('<div class="top-controls">', unsafe_allow_html=True)
 c1, c2, c3 = st.columns([1.2, 1.0, 1.1])
 with c1:
     innings = st.number_input("Number of innings", 1, 12, 7, step=1)
@@ -353,6 +348,7 @@ with c3:
         index=4,
         help="Higher discourages benching the same player in consecutive innings. 0 disables."
     )
+st.markdown('</div>', unsafe_allow_html=True)
 
 pos_list = positions_for(of_choice)
 
@@ -387,30 +383,33 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Input table defaults
+# Input table defaults (use placeholder instead of None so first pick sticks)
 max_players = 17
 df_default = pd.DataFrame({
-    "Name": ["" for _ in range(max_players)],
-    "P1": [None]*max_players,
-    "P2": [None]*max_players,
-    "P3": [None]*max_players,
-    "P4": [None]*max_players,
-    "P5": [None]*max_players,
+    "Name":  ["" for _ in range(max_players)],
+    "P1":    [UNUSED]*max_players,
+    "P2":    [UNUSED]*max_players,
+    "P3":    [UNUSED]*max_players,
+    "P4":    [UNUSED]*max_players,
+    "P5":    [UNUSED]*max_players,
     "Bench": [0]*max_players,
 })
 
-# Persist the roster table across reruns
+# Persist the roster table across reruns (and normalize legacy None/NaN)
 if "roster_df" not in st.session_state:
     st.session_state["roster_df"] = df_default.copy()
+else:
+    for c in ["P1","P2","P3","P4","P5"]:
+        st.session_state["roster_df"][c] = st.session_state["roster_df"][c].fillna(UNUSED)
 
-opt_list = ["— (unused) —"] + pos_list
+opt_list = [UNUSED] + pos_list
 col_cfg = {
     "Name":  st.column_config.TextColumn("Name", width="medium"),
-    "P1":    st.column_config.SelectboxColumn("P1", options=opt_list, default="— (unused) —", width="small"),
-    "P2":    st.column_config.SelectboxColumn("P2", options=opt_list, default="— (unused) —", width="small"),
-    "P3":    st.column_config.SelectboxColumn("P3", options=opt_list, default="— (unused) —", width="small"),
-    "P4":    st.column_config.SelectboxColumn("P4", options=opt_list, default="— (unused) —", width="small"),
-    "P5":    st.column_config.SelectboxColumn("P5", options=opt_list, default="— (unused) —", width="small"),
+    "P1":    st.column_config.SelectboxColumn("P1", options=opt_list, default=UNUSED, width="small"),
+    "P2":    st.column_config.SelectboxColumn("P2", options=opt_list, default=UNUSED, width="small"),
+    "P3":    st.column_config.SelectboxColumn("P3", options=opt_list, default=UNUSED, width="small"),
+    "P4":    st.column_config.SelectboxColumn("P4", options=opt_list, default=UNUSED, width="small"),
+    "P5":    st.column_config.SelectboxColumn("P5", options=opt_list, default=UNUSED, width="small"),
     "Bench": st.column_config.NumberColumn("Bench (max)", min_value=0, max_value=innings, step=1, width="medium"),
 }
 
@@ -429,7 +428,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 # Save edits so the table survives reruns and after Generate
 st.session_state["roster_df"] = df
 
-# Parse roster entries
+# Parse roster entries (ignore UNUSED)
 players_data: List[Dict] = []
 for _, row in st.session_state["roster_df"].iterrows():
     name = (row.get("Name") or "").strip()
@@ -438,7 +437,7 @@ for _, row in st.session_state["roster_df"].iterrows():
     prios_raw = [row.get(c) for c in ["P1","P2","P3","P4","P5"]]
     prios, seen = [], set()
     for r in prios_raw:
-        if r and r != "— (unused) —" and r not in seen:
+        if r and r != UNUSED and r not in seen:
             prios.append(r); seen.add(r)
     benchable = int(row.get("Bench") or 0)
     players_data.append({
@@ -617,7 +616,5 @@ if base is not None:
 
 # Close wrapper
 st.markdown('</div>', unsafe_allow_html=True)
-
-
 
 
