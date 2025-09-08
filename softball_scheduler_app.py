@@ -1,14 +1,13 @@
-# softball_scheduler_app.py — Streamlit + PuLP (CBC) scheduler (stateful, mobile-friendly)
+# softball_scheduler_app.py — Streamlit + PuLP (CBC) scheduler
 # - 3 or 4 outfielders
 # - up to 17 players
 # - per-player priority positions (P1..P5)
 # - benchable innings per player
 # - hard cap: max 2 consecutive benches
 # - soft penalty for back-to-back benches (dropdown weight)
-# - "Avoid sequential innings for:" (encourage rotation for selected positions only)
+# - NEW: "Avoid consecutive innings for:" (encourage rotation for selected positions only)
 # - gentle reward to keep same position for all other positions
-# - arrow controls to reorder innings (◀ ▶) and lineup (▲ ▼)
-# - persists roster grid and solved schedule across reruns
+# - post-solve ARROW CONTROLS to reorder innings (◀ ▶) and lineup (▲ ▼)
 #
 # requirements.txt:
 #   streamlit==1.37.1
@@ -23,7 +22,6 @@ import streamlit as st
 import pandas as pd
 import pulp
 
-UNUSED = "— (unused) —"  # placeholder that is ignored by the solver
 
 # ---------------- Page & CSS (mobile-robust + dark) ----------------
 
@@ -34,15 +32,33 @@ st.set_page_config(
     menu_items={"Get help": None, "Report a bug": None, "About": None},
 )
 
-# Hide Streamlit header bar but keep some top padding
 st.markdown("""
 <style>
-header[data-testid="stHeader"]{ height:0 !important; visibility:hidden; }
-div.block-container{ padding-top:1rem; }
+/* Hide Streamlit's default header bar */
+header[data-testid="stHeader"]{
+  height: 0px !important;
+  visibility: hidden;
+}
+
+/* Add a little top padding back to the content so nothing is cramped */
+div.block-container{
+  padding-top: 1rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
-# Navy/dark theme, page-level horizontal scroll, hide menus
+# Keep the content from stretching too wide on big monitors,
+# so the "Penalty" select isn't way off to the right.
+st.markdown(
+    """
+    <style>
+      .block-container { max-width: 1100px !important; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Navy/dark fallback + page-level horizontal scroll + hide header menu
 st.markdown("""
 <style>
 :root{
@@ -51,10 +67,12 @@ st.markdown("""
   --fg:#ffffff;      /* white text */
   --btn:#ff5a5a;     /* red button */
 }
+
+/* Always dark */
 body, [data-testid="stAppViewContainer"]{ background:var(--bg) !important; color:var(--fg) !important; }
 section.main .block-container{ background:var(--bg) !important; }
 
-/* Hide Streamlit chrome */
+/* Hide Streamlit chrome (3-dot menu, footer, toolbar) */
 #MainMenu, footer, [data-testid="stToolbar"] { display:none !important; }
 
 /* PAGE is the ONLY horizontal scroller (iOS-friendly) */
@@ -64,20 +82,17 @@ section.main{
   overscroll-behavior-x:contain;
 }
 
-/* Natural-width wrapper so the page (not the table) scrolls horizontally */
+/* Wrapper grows to natural width; left-aligned; never smaller than viewport */
 .page-canvas{
-  display:inline-block;
-  width:max-content;
+  display:inline-block;         /* shrink-to-fit */
+  width:max-content;            /* natural width of content */
   min-width:100%;
   margin:0 !important;
   padding-left:max(12px, env(safe-area-inset-left));
   padding-right:max(12px, env(safe-area-inset-right));
-}
 
-/* Constrain ONLY the top controls so the penalty select isn't far-right on big screens */
-.top-controls{ max-width:1100px; }
 
-/* Data editor: avoid nested scrollers */
+/* Make the editor/table adopt natural width (no nested scrollers) */
 [data-testid="stDataFrame"],
 [data-testid="stDataFrame"] > div,
 [data-testid="stDataFrame"] div[role="grid"]{
@@ -86,13 +101,15 @@ section.main{
   overflow:visible !important;
 }
 
-/* High-contrast text */
+/* High-contrast text for labels/inputs on dark bg */
 label, .stMarkdown, .stText, .stCaption, .stRadio, .stSelectbox, .stNumberInput, .stDataFrame, .stTable {
   color:#fff !important; opacity:1 !important;
 }
-input, textarea, select, [data-baseweb="select"] *, .stSelectbox div, .stNumberInput input { color:#fff !important; }
+input, textarea, select, [data-baseweb="select"] *, .stSelectbox div, .stNumberInput input {
+  color:#fff !important;
+}
 
-/* Primary button */
+/* Primary button: red background w/ black text for contrast */
 .stButton>button{
   background:var(--btn) !important;
   color:#000 !important;
@@ -100,39 +117,14 @@ input, textarea, select, [data-baseweb="select"] *, .stSelectbox div, .stNumberI
   font-weight:700 !important;
 }
 
-/* Move the data-editor toolbar to the top-right of the editor */
-#roster-grid { position: relative !important; }
-#roster-grid [data-testid="stElementToolbar"],
-#roster-grid div[aria-label="Data editor toolbar"],
-#roster-grid div[aria-label="Table toolbar"]{
-  position:absolute !important;
-  right:.35rem !important;
-  left:auto !important;
-  top:.35rem !important;
-  transform:none !important;
-  z-index:2 !important;
-}
-
-/* Legend styling */
-.legend-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: .6rem; margin: .4rem 0 0;
-}
-.legend-card {
-  background: rgba(255,255,255,.04);
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: 10px;
-  padding: .6rem .75rem;
-}
-.legend-title { font-weight: 600; margin-bottom: .25rem; }
-.legend-text  { opacity: .88; font-size: .9rem; line-height: 1.25rem; }
-@media (max-width: 640px){ .legend-text { font-size: .86rem; } }
+/* Compact arrow rows */
+.arrow-row{ margin:.2rem 0; }
 </style>
 """, unsafe_allow_html=True)
 
 # Wrap everything so CSS can measure natural width
 st.markdown('<div class="page-canvas">', unsafe_allow_html=True)
+
 
 # ---------------- Helpers ----------------
 
@@ -145,6 +137,7 @@ def positions_for(outfielders: int) -> List[str]:
 # Lower is better; steeper costs favor higher priority
 PRIO_COST = {1: 0, 2: 1, 3: 3, 4: 6, 5: 10}
 
+
 # ---------------- Solver (PuLP + CBC) ----------------
 
 def build_model(
@@ -156,7 +149,7 @@ def build_model(
 ) -> Tuple[pulp.LpProblem, Dict, Dict, Dict]:
     """
     players_data entry: {name, allowed:set[str], bench_max:int, prio_costs:{pos:int}}
-    pos_list: field positions for this game (length = players on field each inning)
+    pos_list: list of field positions for this game (length = players on field each inning)
     avoid_seq_positions: positions for which we discourage consecutive SAME assignment (encourage rotation)
     """
     prob = pulp.LpProblem("softball_schedule", pulp.LpMinimize)
@@ -214,7 +207,8 @@ def build_model(
     max_bench = max((d["bench_max"] for d in players_data), default=0)
     for p in P:
         pr_costs = players_data[p]["prio_costs"]
-        fair_w = (max_bench - players_data[p]["bench_max"] + 1)  # fewer allowed benches => higher cost per bench
+        # fairness weight: those with lower bench_max get higher cost per bench
+        fair_w = (max_bench - players_data[p]["bench_max"] + 1)
         for i in I:
             for pos in pos_list:
                 if (p, i, pos) in x:
@@ -257,6 +251,7 @@ def solve_schedule(prob: pulp.LpProblem) -> Tuple[str, float]:
     status = prob.solve(solver)
     return pulp.LpStatus[status], pulp.value(prob.objective)
 
+
 # ---------------- Arrow-based reordering (innings & lineup) ----------------
 
 def _init_inning_order(innings: int, key: str = "inning_order"):
@@ -279,9 +274,8 @@ def apply_inning_order(df: pd.DataFrame, order: List[int], name_col: str) -> pd.
 def apply_lineup_order(df: pd.DataFrame, order: List[int], name_col: str) -> pd.DataFrame:
     return df.iloc[order].reset_index(drop=True) if name_col in df.columns else df.loc[[df.index[i] for i in order]]
 
-def reorder_with_arrows(base_df: pd.DataFrame, innings: int, name_col: str = "Name") -> pd.DataFrame:
-    """Update orders via arrow buttons and return the ordered dataframe (no explicit st.rerun)."""
-    names = base_df[name_col].astype(str).tolist() if name_col in base_df.columns else base_df.index.astype(str).tolist()
+def reorder_with_arrows(schedule_df: pd.DataFrame, innings: int, name_col: str = "Name") -> pd.DataFrame:
+    names = schedule_df[name_col].astype(str).tolist() if name_col in schedule_df.columns else schedule_df.index.astype(str).tolist()
     in_ord = _init_inning_order(innings)
     ln_ord = _init_lineup_order(names)
 
@@ -304,9 +298,13 @@ def reorder_with_arrows(base_df: pd.DataFrame, innings: int, name_col: str = "Na
                 if left:
                     in_ord[idx-1], in_ord[idx] = in_ord[idx], in_ord[idx-1]
                     st.session_state["inning_order"] = in_ord
+                    st.rerun()
                 if right:
                     in_ord[idx+1], in_ord[idx] = in_ord[idx], in_ord[idx+1]
                     st.session_state["inning_order"] = in_ord
+                    st.rerun()
+
+    out = apply_inning_order(schedule_df, in_ord, name_col)
 
     st.markdown("### Reorder lineup (batting order)")
     for i, idx in enumerate(ln_ord):
@@ -321,20 +319,20 @@ def reorder_with_arrows(base_df: pd.DataFrame, innings: int, name_col: str = "Na
         if up:
             ln_ord[i-1], ln_ord[i] = ln_ord[i], ln_ord[i-1]
             st.session_state["lineup_order"] = ln_ord
+            st.rerun()
         if dn:
             ln_ord[i+1], ln_ord[i] = ln_ord[i], ln_ord[i+1]
             st.session_state["lineup_order"] = ln_ord
+            st.rerun()
 
-    ordered = apply_inning_order(base_df, in_ord, name_col)
-    ordered = apply_lineup_order(ordered, ln_ord, name_col)
-    return ordered
+    return apply_lineup_order(out, ln_ord, name_col)
+
 
 # ---------------- UI ----------------
 
 st.title("🥎 Softball Fielding Schedule Generator")
 
-# Top controls (kept tight with .top-controls wrapper)
-st.markdown('<div class="top-controls">', unsafe_allow_html=True)
+# Game settings (top)
 c1, c2, c3 = st.columns([1.2, 1.0, 1.1])
 with c1:
     innings = st.number_input("Number of innings", 1, 12, 7, step=1)
@@ -347,119 +345,164 @@ with c3:
         index=4,
         help="Higher discourages benching the same player in consecutive innings. 0 disables."
     )
-st.markdown('</div>', unsafe_allow_html=True)
 
 pos_list = positions_for(of_choice)
 
-# positions to avoid consecutive SAME innings
+# NEW: positions to avoid consecutive SAME innings
 avoid_seq_positions = st.multiselect(
-    "Avoid sequential innings for:",
+    "Avoid consecutive innings for:",
     options=pos_list,
     default=[],
     help="Selected positions will be encouraged to rotate (penalize back-to-back same). Others get a small reward to stay the same."
 )
+# --- Move Streamlit data-editor toolbar to the far-right, inside the table ---
+st.markdown("""
+<style>
+/* Anchor the table container so the toolbar can be positioned relative to it */
+.stDataFrame, [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
+  position: relative !important;
+}
+
+/* Reposition the floating toolbar (covers multiple Streamlit versions/selectors) */
+.stDataFrame [data-testid="stElementToolbar"],
+[data-testid="stDataFrame"] [data-testid="stElementToolbar"],
+[data-testid="stDataEditor"] [data-testid="stElementToolbar"],
+div[aria-label="Data editor toolbar"],
+div[aria-label="Table toolbar"] {
+  position: absolute !important;
+  left: auto !important;
+  right: .35rem !important;    /* push to far-right */
+  top: .35rem !important;      /* sit just inside the top of the table */
+  transform: none !important;
+  z-index: 2 !important;       /* above grid chrome but not your headings */
+}
+
+/* Add a tiny cushion above the table so the toolbar never touches your title/legend */
+.roster-padding { height: .4rem; }
+</style>
+""", unsafe_allow_html=True)
 
 st.subheader("Roster & Preferences")
+
+# small vertical gap so the editor toolbar doesn't cover the heading
 st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
 
-# Legend (only P1–P5 and Bench)
+# --- Legend above the table (only P1–P5 and Bench) ---
 st.markdown("""
 <div class="legend-grid">
   <div class="legend-card">
     <div class="legend-title">P1–P5</div>
     <div class="legend-text">
       Priority order of allowed positions for a player (P1 = highest).
-      The solver prefers higher priorities and will only assign positions
-      that appear in the selected priorities for that player.
+      At least one position must be selected for each player.
     </div>
   </div>
+
   <div class="legend-card">
     <div class="legend-title">Bench (max)</div>
     <div class="legend-text">
-      Maximum innings this player can sit. Set to <b>0</b> if they must play every inning.
+      Maximum innings this player can sit. <b>0</b> is valid.
     </div>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
-# Input table defaults (use placeholder instead of None so first pick sticks)
+st.markdown("""
+<style>
+.legend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: .6rem;
+  margin: .4rem 0 0;
+}
+.legend-card {
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 10px;
+  padding: .6rem .75rem;
+}
+.legend-title {
+  font-weight: 600;
+  margin-bottom: .25rem;
+}
+.legend-text {
+  opacity: .88;
+  font-size: .9rem;
+  line-height: 1.25rem;
+}
+@media (max-width: 640px){
+  .legend-text { font-size: .86rem; }
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+#roster-grid { position: relative !important; }
+
+/* Force the grid’s toolbar into the top-right corner of the roster editor */
+#roster-grid [data-testid="stElementToolbar"],
+#roster-grid div[aria-label="Data editor toolbar"],
+#roster-grid div[aria-label="Table toolbar"]{
+  position: absolute !important;
+  right: .35rem !important;
+  left: auto !important;
+  top: .35rem !important;
+  transform: none !important;
+  z-index: 2 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# Input table (horizontally laid out; page handles scrolling)
 max_players = 17
 df_default = pd.DataFrame({
-    "Name":  ["" for _ in range(max_players)],
-    "P1":    [UNUSED]*max_players,
-    "P2":    [UNUSED]*max_players,
-    "P3":    [UNUSED]*max_players,
-    "P4":    [UNUSED]*max_players,
-    "P5":    [UNUSED]*max_players,
-    "Bench": [0]*max_players,
+    "Name": ["" for _ in range(max_players)],
+    "P1": [None]*max_players,
+    "P2": [None]*max_players,
+    "P3": [None]*max_players,
+    "P4": [None]*max_players,
+    "P5": [None]*max_players,
+    "Bench": [0]*max_players,   # shorter header avoids truncation
 })
 
-# Persist the roster table across reruns (and normalize legacy None/NaN)
-if "roster_df" not in st.session_state:
-    st.session_state["roster_df"] = df_default.copy()
-else:
-    for c in ["P1","P2","P3","P4","P5"]:
-        st.session_state["roster_df"][c] = st.session_state["roster_df"][c].fillna(UNUSED)
-
-# Ensure existing selections remain valid if OF layout changes (e.g., LCF/RCF appear/disappear)
-valid_opts = set([UNUSED] + pos_list)
-for c in ["P1","P2","P3","P4","P5"]:
-    st.session_state["roster_df"][c] = st.session_state["roster_df"][c].where(
-        st.session_state["roster_df"][c].isin(valid_opts),
-        other=UNUSED
-    )
-
-opt_list = [UNUSED] + pos_list
+opt_list = ["— (unused) —"] + pos_list
 col_cfg = {
     "Name":  st.column_config.TextColumn("Name", width="medium"),
-    "P1":    st.column_config.SelectboxColumn("P1", options=opt_list, default=UNUSED, width="small"),
-    "P2":    st.column_config.SelectboxColumn("P2", options=opt_list, default=UNUSED, width="small"),
-    "P3":    st.column_config.SelectboxColumn("P3", options=opt_list, default=UNUSED, width="small"),
-    "P4":    st.column_config.SelectboxColumn("P4", options=opt_list, default=UNUSED, width="small"),
-    "P5":    st.column_config.SelectboxColumn("P5", options=opt_list, default=UNUSED, width="small"),
+    "P1":    st.column_config.SelectboxColumn("P1", options=opt_list, default="— (unused) —", width="small"),
+    "P2":    st.column_config.SelectboxColumn("P2", options=opt_list, default="— (unused) —", width="small"),
+    "P3":    st.column_config.SelectboxColumn("P3", options=opt_list, default="— (unused) —", width="small"),
+    "P4":    st.column_config.SelectboxColumn("P4", options=opt_list, default="— (unused) —", width="small"),
+    "P5":    st.column_config.SelectboxColumn("P5", options=opt_list, default="— (unused) —", width="small"),
     "Bench": st.column_config.NumberColumn("Bench (max)", min_value=0, max_value=innings, step=1, width="medium"),
 }
 
-# --- on_change callback to persist first edits immediately ---
-def _persist_roster_from_editor():
-    try:
-        edited = st.session_state["roster_editor"]
-        for c in ["P1","P2","P3","P4","P5"]:
-            edited[c] = edited[c].fillna(UNUSED)
-            edited[c] = edited[c].where(edited[c].isin(valid_opts), other=UNUSED)
-        edited["Name"]  = edited["Name"].fillna("")
-        edited["Bench"] = edited["Bench"].fillna(0)
-        st.session_state["roster_df"] = edited.copy()
-    except Exception:
-        pass
 
-# Data editor (persisted + callback)
-st.markdown('<div id="roster-grid">', unsafe_allow_html=True)
-st.data_editor(
-    st.session_state["roster_df"],
+
+df = st.data_editor(
+    df_default,
     column_config=col_cfg,
     num_rows="fixed",
     hide_index=True,
-    use_container_width=False,   # page does the sideways scroll
-    key="roster_editor",
-    on_change=_persist_roster_from_editor,
+    use_container_width=False,   # natural width; page does the sideways scroll
 )
-st.markdown('</div>', unsafe_allow_html=True)
 
-# For downstream parsing, always read the latest editor value if present
-df = st.session_state.get("roster_editor", st.session_state["roster_df"]).copy()
-
-# Parse roster entries (ignore UNUSED)
+# Parse roster entries
 players_data: List[Dict] = []
 for _, row in df.iterrows():
     name = (row.get("Name") or "").strip()
     if not name:
         continue
     prios_raw = [row.get(c) for c in ["P1","P2","P3","P4","P5"]]
-    prios, seen = [], set()
+    prios = []
+    seen = set()
     for r in prios_raw:
-        if r and r != UNUSED and r not in seen:
+        if r and r != "— (unused) —" and r not in seen:
             prios.append(r); seen.add(r)
+    if not prios:
+        # They can still be scheduled only on Bench if needed, but that risks infeasibility.
+        pass
     benchable = int(row.get("Bench") or 0)
     players_data.append({
         "name": name,
@@ -471,7 +514,7 @@ for _, row in df.iterrows():
 st.divider()
 gen = st.button("Generate Schedule", type="primary", use_container_width=True)
 
-# ---------------- Generate & STORE schedule in session_state ----------------
+# ---------------- Generate & Show ----------------
 
 def explain_infeasibility(players_data: List[Dict], pos_list: List[str], innings: int) -> str:
     counts = {pos: 0 for pos in pos_list}
@@ -533,7 +576,64 @@ if gen:
                 rows.append(row)
             schedule_df = pd.DataFrame(rows, columns=["Name"] + [str(i + 1) for i in range(innings)])
 
-            # Bench summary (store)
+            st.success(f"Schedule generated. Solver status: {status_str}")
+
+            # Post-solve reordering (arrows)
+            schedule_df = reorder_with_arrows(schedule_df, innings=innings, name_col="Name")
+
+            # Render as simple HTML table so page handles horizontal scroll
+            name_w = 140
+            col_w = 120
+            total_w = name_w + innings * col_w + 60
+
+            def df_to_html_table(df: pd.DataFrame) -> str:
+                styles = f"""
+                <style>
+                    .sched-wrapper {{
+                        width: {total_w}px;
+                    }}
+                    table.sched {{
+                        border-collapse: collapse;
+                        width: {total_w}px;
+                        table-layout: fixed;
+                        font-size: 14px;
+                        color: #fff;
+                    }}
+                    table.sched th, table.sched td {{
+                        border: 1px solid rgba(255,255,255,0.2);
+                        padding: 6px 8px;
+                        text-align: center;
+                    }}
+                    table.sched th:first-child, table.sched td:first-child {{
+                        width: {name_w}px; text-align: left; font-weight: 600;
+                    }}
+                    table.sched th:not(:first-child), table.sched td:not(:first-child) {{
+                        width: {col_w}px;
+                    }}
+                </style>
+                """
+                html = ['<div class="sched-wrapper">', '<table class="sched">', "<thead><tr>"]
+                for c in df.columns: html.append(f"<th>{c}</th>")
+                html.append("</tr></thead><tbody>")
+                for _, r in df.iterrows():
+                    html.append("<tr>")
+                    for c in df.columns: html.append(f"<td>{r[c]}</td>")
+                    html.append("</tr>")
+                html.append("</tbody></table></div>")
+                return styles + "".join(html)
+
+            st.markdown("## Schedule")
+            st.markdown(df_to_html_table(schedule_df), unsafe_allow_html=True)
+
+            # Download CSV
+            st.download_button(
+                "Download CSV",
+                data=schedule_df.to_csv(index=False).encode("utf-8"),
+                file_name="softball_fielding_schedule.csv",
+                mime="text/csv",
+            )
+
+            # Bench summary
             play_counts = {n: 0 for n in names}
             for i in range(innings):
                 for p_idx, n in enumerate(names):
@@ -548,92 +648,15 @@ if gen:
                     "Benched": innings - played,
                     "Bench max (allowed)": next(p["bench_max"] for p in players_data if p["name"] == n),
                 })
-            bench_df = pd.DataFrame(bench_rows).sort_values(["Benched", "Player"])
+            st.markdown("**Bench Summary**")
+            st.dataframe(pd.DataFrame(bench_rows).sort_values(["Benched", "Player"]),
+                         use_container_width=True, hide_index=True)
 
-            # ---- STORE in session_state so arrows don't lose it ----
-            st.session_state["base_schedule_df"] = schedule_df
-            st.session_state["bench_summary_df"] = bench_df
-            st.session_state["generated_innings"] = innings
-            # reset orders to defaults for the new schedule
-            st.session_state["inning_order"] = list(range(1, innings + 1))
-            st.session_state["lineup_order"] = list(range(len(schedule_df)))
-
-            st.success(f"Schedule generated. Solver status: {status_str}")
         else:
             st.error(f"No feasible schedule found. Solver status: {status_str}")
             st.info(explain_infeasibility(players_data, pos_list, innings))
     else:
         st.error(f"Solver status: {status_str} (unexpected)")
-
-# ---------------- Always show saved schedule (if any), with arrow controls ----------------
-
-def render_schedule_and_download(ordered_df: pd.DataFrame, innings: int):
-    # Render as simple HTML table so the PAGE scrolls horizontally
-    name_w = 180   # (reverted) Name column width you liked
-    col_w  = 120   # inning columns
-    total_w = name_w + innings * col_w + 60
-
-    def df_to_html_table(df: pd.DataFrame) -> str:
-        styles = f"""
-        <style>
-            .sched-wrapper {{ width: {total_w}px; }}
-            table.sched {{
-                border-collapse: collapse;
-                width: {total_w}px;
-                table-layout: fixed;
-                font-size: 14px;
-                color: #fff;
-            }}
-            table.sched th, table.sched td {{
-                border: 1px solid rgba(255,255,255,0.2);
-                padding: 6px 8px;
-                text-align: center;
-            }}
-            table.sched th:first-child, table.sched td:first-child {{
-                width: {name_w}px; text-align: left; font-weight: 600;
-            }}
-            table.sched th:not(:first-child), table.sched td:not(:first-child) {{
-                width: {col_w}px;
-            }}
-        </style>
-        """
-        html = ['<div class="sched-wrapper">', '<table class="sched">', "<thead><tr>"]
-        for c in df.columns: html.append(f"<th>{c}</th>")
-        html.append("</tr></thead><tbody>")
-        for _, r in df.iterrows():
-            html.append("<tr>")
-            for c in df.columns: html.append(f"<td>{r[c]}</td>")
-            html.append("</tr>")
-        html.append("</tbody></table></div>")
-        return styles + "".join(html)
-
-    st.markdown("## Schedule")
-    st.markdown(df_to_html_table(ordered_df), unsafe_allow_html=True)
-
-    st.download_button(
-        "Download CSV",
-        data=ordered_df.to_csv(index=False).encode("utf-8"),
-        file_name="softball_fielding_schedule.csv",
-        mime="text/csv",
-    )
-
-# If we have a saved schedule, show arrow controls + ordered schedule + bench summary
-base = st.session_state.get("base_schedule_df", None)
-if base is not None:
-    use_innings = st.session_state.get("generated_innings", len([c for c in base.columns if c.isdigit()]))
-    ordered_df = reorder_with_arrows(base, innings=use_innings, name_col="Name")
-    render_schedule_and_download(ordered_df, innings=use_innings)
-
-    bench_df = st.session_state.get("bench_summary_df")
-    if bench_df is not None:
-        # Reorder bench summary to match current lineup order (optional)
-        name_order = ordered_df["Name"].tolist()
-        order_map = {name: i for i, name in enumerate(name_order)}
-        bench_df_view = bench_df.copy()
-        bench_df_view["__ord"] = bench_df_view["Player"].map(order_map).fillna(9999)
-        bench_df_view = bench_df_view.sort_values(["__ord", "Player"]).drop(columns="__ord")
-        st.markdown("**Bench Summary**")
-        st.dataframe(bench_df_view, use_container_width=True, hide_index=True)
 
 # Close wrapper
 st.markdown('</div>', unsafe_allow_html=True)
