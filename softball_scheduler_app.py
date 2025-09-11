@@ -90,7 +90,10 @@ section.main{
   margin:0 !important;
   padding-left:max(12px, env(safe-area-inset-left));
   padding-right:max(12px, env(safe-area-inset-right));
+}
 
+/* Neutralize Streamlit's centered max-width that can hide edges */
+section.main .block-container{ max-width:none !important; }
 
 /* Make the editor/table adopt natural width (no nested scrollers) */
 [data-testid="stDataFrame"],
@@ -350,7 +353,7 @@ pos_list = positions_for(of_choice)
 
 # NEW: positions to avoid consecutive SAME innings
 avoid_seq_positions = st.multiselect(
-    "Avoid consecutive innings for:",
+    "Avoid sequential innings for:",
     options=pos_list,
     default=[],
     help="Selected positions will be encouraged to rotate (penalize back-to-back same). Others get a small reward to stay the same."
@@ -387,73 +390,41 @@ st.subheader("Roster & Preferences")
 # small vertical gap so the editor toolbar doesn't cover the heading
 st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
 
-# --- Legend above the table (only P1–P5 and Bench) ---
-st.markdown("""
-<div class="legend-grid">
-  <div class="legend-card">
-    <div class="legend-title">P1–P5</div>
-    <div class="legend-text">
-      Priority order of allowed positions for a player (P1 = highest).
-      At least one position must be selected for each player.
-    </div>
-  </div>
-
-  <div class="legend-card">
-    <div class="legend-title">Bench (max)</div>
-    <div class="legend-text">
-      Maximum innings this player can sit. <b>0</b> is valid.
-    </div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
+# --- Column legend shown above the table ---
 st.markdown("""
 <style>
-.legend-grid {
+/* compact, responsive legend chips */
+.legend {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: .6rem;
-  margin: .4rem 0 0;
+  gap: .5rem .75rem;
+  margin: .35rem 0 0.6rem 0;
 }
-.legend-card {
-  background: rgba(255,255,255,.04);
+.legend .chip{
+  background: rgba(255,255,255,.06);
   border: 1px solid rgba(255,255,255,.12);
-  border-radius: 10px;
-  padding: .6rem .75rem;
-}
-.legend-title {
-  font-weight: 600;
-  margin-bottom: .25rem;
-}
-.legend-text {
-  opacity: .88;
-  font-size: .9rem;
+  padding: .55rem .7rem;
+  border-radius: .55rem;
+  font-size: .95rem;
   line-height: 1.25rem;
 }
-@media (max-width: 640px){
-  .legend-text { font-size: .86rem; }
-}
+.legend b {font-weight: 700}
 </style>
+
+<div class="legend">
+  <div class="chip"><b>Name</b> — Player’s name.</div>
+  <div class="chip"><b>P1–P5</b> — Position preferences in priority order.  
+  Leave unused priorities blank; only chosen positions are eligible.</div>
+  <div class="chip"><b>Bench (max)</b> — Max innings this player may sit (0 = never bench).</div>
+</div>
+
+<small>
+<b>Position codes:</b> <code>P</code>, <code>C</code>, <code>1B</code>, <code>2B</code>,
+<code>3B</code>, <code>SS</code>, <code>LF</code>, <code>CF</code>, <code>RF</code>
+</small>
 """, unsafe_allow_html=True)
 
-st.markdown("""
-<style>
-#roster-grid { position: relative !important; }
-
-/* Force the grid’s toolbar into the top-right corner of the roster editor */
-#roster-grid [data-testid="stElementToolbar"],
-#roster-grid div[aria-label="Data editor toolbar"],
-#roster-grid div[aria-label="Table toolbar"]{
-  position: absolute !important;
-  right: .35rem !important;
-  left: auto !important;
-  top: .35rem !important;
-  transform: none !important;
-  z-index: 2 !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
+st.markdown('<div class="roster-padding"></div>', unsafe_allow_html=True)
 
 # Input table (horizontally laid out; page handles scrolling)
 max_players = 17
@@ -660,4 +631,6 @@ if gen:
 
 # Close wrapper
 st.markdown('</div>', unsafe_allow_html=True)
+
+
 
